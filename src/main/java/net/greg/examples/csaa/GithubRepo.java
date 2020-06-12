@@ -1,0 +1,419 @@
+package net.greg.examples.csaa;
+
+import java.io.*;
+import java.util.*;
+import java.util.concurrent.*;
+
+
+/**
+ * Creating a set of POJOs to represent the JSON model is both inefficient from
+ * a runtime standpoint (GC), it is also brittle from a design perspective.
+ *
+ * By contrast, String manipulation logic is readily adaptable to (the likely)
+ * changes to of Github's APIs.
+ *
+ * Use Case
+ *
+ * Allow end-user to specify:
+ *   Owner, Repo, Event-type
+ *
+ * Display matching events from Github's Events API.
+ *
+ * For each matching event show:
+ *    Eventtype,  Actor info, Timestamp
+ *
+ * Show contextual event-type info as desired.
+ */
+public final class GithubRepo {
+
+  /**
+   * From the CLI argument which signifies the Github contributor's name,
+   * as supplied by enduser, find that contributor bio/metadata.
+   *
+   * @param ownername CLI argument signifies the Github contributor name, supplied by enduser
+   * @return the bio info of the Github contributor
+   * @see #accept(String[])
+   */
+  private static String ownerbio(final String ownername) {
+
+    final StringBuilder payload = new StringBuilder(1_000);
+
+    String line = "";
+
+    BufferedReader reader = null;
+
+    try {
+
+      ENDPOINT.append(ownername);
+
+      Process process = Runtime.getRuntime().exec(new String[] {
+        CURL, ENDPOINT.toString() });
+
+      process.waitFor();
+
+      reader =
+        new BufferedReader(
+          new InputStreamReader(
+            process.getInputStream()));
+
+      while (null != (line = reader.readLine())) {
+
+        final String key = getKey(line);
+        final String value = getValue(line, key);
+
+        if (universalKeys.contains(getKey(line))) {
+
+          payload.
+            append("<li>&nbsp;").
+            append("\n\n<li><b>" + key + "</b>").
+            append(":\n<li>" + value);
+
+          endpoints.put(key, value);
+        }
+      }
+    }
+    catch (IOException e) { e.printStackTrace(); }
+    catch (InterruptedException e) { e.printStackTrace(); }
+
+    // Runtime.getRuntime().exec()'s construction
+    // precludes using try w/ resources
+    try { reader.close(); } catch (IOException e) { e.printStackTrace(); }
+
+    return payload.toString();
+  }
+
+
+  /**
+   * From the CLI argument signifying the Github contributor's name,
+   * as supplied by enduser, along with the repo name find all repos
+   * and identify the repo found.
+   *
+   * @param ownername CLI argument signifies the Github contributor name,
+   *                  as supplied by the end user
+   * @param reponame CLI argument signifies the Github contributor's repo's
+   *                 name, as supplied by the end user
+   * @return the amalgamation of repos owned by the Github contributor
+   * @see #accept(String[])
+   */
+  private static String repos(final String ownername, String reponame) {
+
+    String desiredRepo = "";
+
+    final StringBuilder payload =
+      new StringBuilder(1_000);
+
+    String line = "";
+
+    BufferedReader reader = null;
+
+    try {
+
+      Process process =
+        Runtime.getRuntime().exec(
+          "bash repos " + ownername);
+
+      process.waitFor();
+
+      reader =
+        new BufferedReader(
+          new InputStreamReader(
+            process.getInputStream()));
+
+      payload.
+        append("\n\n\n<li>  ...  ...  ...\n\n<li>Owner ").
+        append("<li>" + ownername).
+        append("'s Repos: \n");
+
+      while (null != (line = reader.readLine())) {
+
+        payload.append("\n<li>  " + line);
+
+        if (line.contains(reponame)) {
+          desiredRepo = line;
+        }
+      }
+
+      payload.append("\n\n<li>  " + desiredRepo + " <---");
+      payload.append("<li>&nbsp;");
+      payload.append("\n\n<li><b> ...  ...  ...\n\n</b>");
+    }
+    catch (IOException e) { e.printStackTrace(); }
+    catch (InterruptedException e) { e.printStackTrace(); }
+
+    // Runtime.getRuntime().exec()'s  construction
+    // precludes using try w/ resources
+    try { reader.close(); } catch (IOException e) { e.printStackTrace(); }
+
+    return payload.toString();
+  }
+
+  /**
+   * Find all events matching the event that match the end user's
+   * CLI arguments (that are search keys):
+   *
+   * @param ownername CLI argument signifies the Github contributor name,
+   *                  as supplied by the end user
+   * @param reponame  CLI argument signifies the Github contributor's repo
+   *                  name, as supplied by the end user
+   * @param eventtype CLI argument signifies the Github contributor's repo's
+   *                  event name, as supplied by the end user
+   * @see #accept(String[])
+   * @return
+   */
+  private static String events(
+      final String ownername,
+      final String reponame,
+      final String eventtype) {
+
+    final StringBuilder payload =
+      new StringBuilder(1_000);
+
+    String line = "";
+
+    BufferedReader reader = null;
+
+    try {
+
+      Process process =
+        Runtime.getRuntime().exec(
+          "bash events " +
+          ownername + " " +
+          reponame + " " +
+          eventtype);
+
+      process.waitFor();
+
+      reader =
+        new BufferedReader(
+          new InputStreamReader(
+            process.getInputStream()));
+
+      payload.
+        append("\n\n\n<b>  ...  ...  ...\n\n ").
+        append(ownername).
+        append("'s Events: \n</b>");
+
+      boolean allow = false;
+
+      while (null != (line = reader.readLine())) {
+
+        if (line.contains("type") &&
+            line.toUpperCase().contains(
+              eventtype.toUpperCase())) {
+
+          allow = true;
+          line = line.split(":")[1].replace("\"","").
+                  replace(",","");
+          payload.append("\n  " + line);
+        }
+        if (line.contains("actor") && allow) {
+          parse(line, "actor", payload);
+        }
+        if (line.contains("gravatar_id") && allow) {
+          parse(line, "gravatar_id", payload);
+        }
+        if (line.contains("avatar_url") && allow) {
+          parse(line, "avatar_url", payload);
+        }
+        if (line.contains("url") && allow) {
+          parse(line, "url", payload);
+        }
+        if (line.contains("},") && allow) {
+          allow = false;
+        }
+      }
+
+      payload.append("\n\n<li> ...  ...  ...\n\n");
+    }
+    catch (IOException e) { e.printStackTrace(); }
+    catch (InterruptedException e) { e.printStackTrace(); }
+
+    // Runtime.getRuntime().exec()'s  construction
+    // precludes using try w/ resources
+    try { reader.close(); } catch (IOException e) { e.printStackTrace(); }
+
+    return payload.toString();
+  }
+
+  /**
+   * Utility breaks JSON into constituent parts
+   *
+   * @param line the line to be parsed and split
+   * @param token the value of the token used to split a line into K/V components
+   * @param payload the readout composite
+   */
+  private static void parse(
+      String line, String token, StringBuilder payload) {
+
+    String [] linesplit = line.split(token + "\":");
+
+    String key = line.split(":")[0];
+    key = key.replace("\"","").replace(",","");
+
+    String value = linesplit[1].replace("\"","").replace(",","");
+
+    if (key.contains("actor")) {
+
+      value.replace("{","");
+      payload.append("\n<li><b>  " + key + "</b>");
+      return;
+    }
+
+
+    if (value.trim().isEmpty()) {
+      payload.append("\n<li>  " + key + " is Empty");
+    }
+    else {
+      payload.append("\n<li>  " + key + " is " + value.trim());
+    }
+
+    ///payload.append("\n<li>  " + key + " is " + value.trim());
+  }
+
+  /**
+   * Find the Key part of the K/V pair.
+   *
+   * @param value the entry
+   * @return the key to find the value
+   * @see #ownerbio(String)
+   */
+  private static String getKey(String value) {
+
+    if (value.indexOf(":") > 0) {
+      value = value.split(":")[0];
+    }
+
+    return value.replace("\"", "").trim();
+  }
+
+  /**
+   * Find the Value part of the K/V pair.
+   *
+   * @param value the entry
+   * @param key the key to find the value
+   * @param the value found from the key
+   * @see #ownerbio(String)
+   */
+  private static String getValue(String value, String key) {
+
+    if (value.indexOf(key) > 0) {
+      value = value.split(key)[1];
+    }
+
+    return value.replace("\"", "").replace(":", "").replace(",", "").trim();
+  }
+
+  /**
+   *  Canonical entrypoint for a stand-alone Java app.
+   */
+   public static void main(String[] args) {
+     GithubRepo.accept(args);
+   }
+
+   /**
+    * Accept the CLI formal argument values, then
+    * procees extraction of the scalar datapoints
+    * (K/V pairs).
+    *
+    * None of the XPath complexity of walking a
+    * DOM-like "tree" either.
+    * @param args
+    */
+  public static final void accept(String[] args) {
+
+    if (args.length != 3){
+
+      System.err.println(
+        "<li>Please supply 3 Search Terms, in Order: \n" +
+        "  Owner, Repo, Event ...\n");
+
+      System.exit(0);
+    }
+
+    canvass(args);
+  }
+
+  /**
+   * Orchestrates the readout info that it then Assembles.
+   * @param args
+   * @see #accept(String[])
+   */
+  private static void canvass(String[] args) {
+
+    compendium.
+      append(ownerbio(args[0])).
+      append(repos(args[0], args[1])).
+      append(events(args[0], args[1], args[2]));
+
+    System.err.println(
+      "\n\nUser-Supplied Search Terms..." +
+      "\n\n<li><b>Repo Owner \n</b>" +
+      "<li>" + args[0] + "\n" +
+      "<li>&nbsp;" +
+      "\n<li>Repo Name \n" +
+      "<li>" + args[1] + "\n" +
+      "<li>&nbsp;" +
+      "\n<li>Event Filter\n" +
+      "<li>" + args[2] + "\n" +
+      "\n<li>  ...  ...  ...\n\n" +
+      compendium);
+
+
+      StringBuilder model =
+        new StringBuilder(200).
+          append("<ul style='list-style: none'>").
+          append("<li><b>User-Supplied Search Terms...</b>").
+          append("<li>&nbsp;").
+          append("<li><b>Repo Owner</b>").
+          append("<li>" + args[0]).
+          append("<li>&nbsp;").
+          append("<li><li><b>Repo Name</b>").
+          append("<li>" + args[1]).
+          append("<li>&nbsp;").
+          append("<li><b>Event Filter</b>").
+          append("<li>" + args[2]).
+          append("<li><b> ...  ...  ...</b>").
+          append("<li>&nbsp;").
+          append(compendium);
+
+      try (
+
+        PrintWriter writer =
+          new PrintWriter(
+            new FileWriter("Readout.html"))) {
+
+        writer.write(model.toString());
+      }
+      catch (IOException e) { e.printStackTrace(); }
+  }
+
+  /**
+   * The model of teh entire readout is stored in this structure.
+   */
+  private static final StringBuilder compendium =
+    new StringBuilder(5_000);
+
+  /**
+   * A collection of
+   */
+  private static Map<String,String> endpoints =
+    new ConcurrentHashMap(); // RH diamond is optional
+
+  /**
+   * The canonical <code>cURL</code> commmand that is used in a canonical
+   * <code>Runtime.getRuntime()</code> instance to be invoked in a ßash shell
+   */
+  private static final String CURL = "curl";
+
+  /**
+   * This central Github endpoint used to retrieve user bio-information
+   */
+  private static final StringBuilder ENDPOINT =
+    new StringBuilder("https://api.github.com/users/");
+
+  /**
+   * Pipe-delimited universe of keys to scalar K/V pairs
+   */
+  private static final String universalKeys =
+    "created_at|updated_at";
+}

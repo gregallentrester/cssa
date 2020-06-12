@@ -1,0 +1,21 @@
+#!/bin/bash
+
+export PROMPT_COMMAND='echo -ne "\033]0;  $(ipconfig getifaddr en0) - Vault Secrets, via Process ßuilder   \007"'
+
+clear
+
+args=("$@")
+ELEMENTS=${#args[@]}
+
+echo
+echo
+echo  Incoming ARG Count:  ${#args[@]}
+echo
+echo "$@"
+echo
+echo
+
+
+java -jar target/githubrepo.jar $@
+
+open Readout.html

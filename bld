@@ -1,0 +1,5 @@
+#!/bin/bash
+
+mvn clean install -B
+
+rm dependency-reduced-pom.xml
